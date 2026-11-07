@@ -189,6 +189,16 @@ def contemporary_nxp(root):
             and "17.07.00" in readme,
             "current NXP17 SE release identity changed")
     check_modern_contract(root, ref, "current NXP17 vendor")
+    # The immutable July vendor snapshot predates the official SE security
+    # bounds guard. Never accidentally copy its unchecked channel handling.
+    for path in ("snxxx/aidl/SecureElement.cpp",
+                 "snxxx/aidl/VirtualISO.cpp"):
+        vendor_cpp = show(root, ref, path)
+        require("mOpenedChannels[resApduBuff.channelNumber] = true"
+                in vendor_cpp
+                and "rspApdu.p_data[0] < mMaxChannelCount" not in vendor_cpp,
+                f"NXP17 SE channel-boundary status changed: {path}")
+    print("WARN: pinned NXP17 vendor SE AIDL lacks AOSP17 r3 channel index guard")
     disabled = show(root, ref,
                     "libese_vendor_extn/se_update_agent/Android.bp")
     rc = show(root, ref,
@@ -222,6 +232,21 @@ def official_aosp17(root):
     security = pin(root, "refs/tags/android-security-17.0.0_r3",
                    SEC_SHA, SEC_TREE, "official AOSP17 SE security tag r3")
     check_modern_contract(root, baseline, "official AOSP17 r1")
+    # Real official security fix: guard SE response channel before indexing
+    # mOpenedChannels. AIDL V1 and both VirtualISO implementations matter.
+    for path in ("snxxx/aidl/SecureElement.cpp",
+                 "snxxx/aidl/VirtualISO.cpp"):
+        before_cpp = show(root, baseline, path)
+        after_cpp = show(root, security, path)
+        guard = "rspApdu.p_data[0] < mMaxChannelCount && rspApdu.p_data[0] > 0"
+        require(guard not in before_cpp
+                and "mOpenedChannels[resApduBuff.channelNumber] = true" in before_cpp,
+                f"AOSP17 r1 SE channel-index status changed: {path}")
+        require(guard in after_cpp
+                and "mOpenedChannels[resApduBuff.channelNumber] = true" in after_cpp
+                and "sestatus = ISecureElement::CHANNEL_NOT_AVAILABLE" in after_cpp,
+                f"official SE security r3 channel bounds fix missing: {path}")
+    print("PASS: official SE r3 fixes AIDL SecureElement and VirtualISO channel indices")
     # Check tag by Git file hashes, not release timestamp. Never
     # silently enable a security tag in the current manifest.
     before = blob_paths(root, baseline, "")
@@ -278,6 +303,27 @@ def manifest(root):
                 f"official Android17 SE/NFC/OMAPI source owner changed: {path}")
     require(LEGACY_PATH not in owners and LEGACY_NAME not in owners.values(),
             "legacy P73 SE HIDL accidentally activated")
+    candidate_root = ET.parse(
+        root / "aosp17_pe_p2_se_security_candidate.xml").getroot()
+    candidate_nodes = list(candidate_root)
+    expected_source = {
+        "path": "hardware/nxp/secure_element",
+        "name": "platform/hardware/nxp/secure_element",
+        "remote": "aosp",
+        "revision": SEC_SHA,
+        "upstream": "refs/tags/android-security-17.0.0_r3",
+        "groups": "pdk",
+    }
+    require(candidate_root.tag == "manifest"
+            and len(candidate_nodes) == 3
+            and [x.tag for x in candidate_nodes]
+                == ["include", "remove-project", "project"]
+            and candidate_nodes[0].attrib
+                == {"name": "aosp17_pe_p2_kernel_configs.xml"}
+            and candidate_nodes[1].attrib
+                == {"name": "platform/hardware/nxp/secure_element"}
+            and candidate_nodes[2].attrib == expected_source,
+            "experimental SE r3 source checkout is not strictly isolated")
     validator = (root / "tools/validate_aosp17_base_profiles.py").read_text()
     tests = (root / "tools/test_aosp17_manifest_entrypoint.py").read_text()
     require(f'if "{LEGACY_PATH}" in projects:' in validator
