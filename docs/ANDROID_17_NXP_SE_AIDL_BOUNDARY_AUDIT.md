@@ -40,6 +40,22 @@ Source links: https://android.googlesource.com/platform/hardware/nxp/secure_elem
 - `frameworks/sems/Android.bp` modern `com.nxp.sems` is **`enabled: false`**, `sdk_version: "29"`. No reason to add the obsolete framework/permission module to the Android17 platform.
 - The NFC HAL AIDL V2, SE HAL AIDL V1, vendor NXP AIDL V1 and OMAPI access rules are **separate interfaces**. Preserve all independent source owners and avoid legacy `INxpEse` or `INxpEseEvtProcessor` HIDL injection.
 
+## Confirmed official SE security fix — newer AOSP17 source, isolated candidate
+
+An actual Git diff (not only a tag comparison) was inspected in [GitHub Actions #42322285010](https://github.com/PixelExperience-Reborn/vendor_nxp_secure_element/actions/runs/42322285010), comparing immutable official AOSP17 SE `android-17.0.0_r1` (`ebc3542b...`) against `android-security-17.0.0_r3` (`8aec22fd...`). Exactly **10 paths changed, zero added and zero removed**:
+
+- `pn8x/1.0/SecureElement.cpp`, `pn8x/1.1/SecureElement.cpp`;
+- `snxxx/1.0/{SecureElement.cpp,VirtualISO.cpp}`, `snxxx/1.1/{SecureElement.cpp,VirtualISO.cpp}`, `snxxx/1.2/{SecureElement.cpp,VirtualISO.cpp}`;
+- **`snxxx/aidl/SecureElement.cpp`** and **`snxxx/aidl/VirtualISO.cpp`**.
+
+**Verified AIDL correction:** in `openLogicalChannel()`, official security-r3 checks `rspApdu.p_data[0] < mMaxChannelCount && rspApdu.p_data[0] > 0` **before** assigning the returned channel number, increasing `mOpenedchannelCount` and indexing `mOpenedChannels[resApduBuff.channelNumber]`. If the channel number is outside this admissible range, it sets the channel number to `-1` and the result to `ISecureElement::CHANNEL_NOT_AVAILABLE`. The baseline AOSP17 r1 code performed the array access without this specific check. This removes one class of out-of-range channel-index access when an SE response provides an unexpected channel number; it does **not** by itself establish full APDU response length validation, exploitability, a specific CVE, or correct behavior on every NFCC/SE.
+
+**Vendor release nuance:** the pinned NXP 17.07.00 `snxxx/aidl/SecureElement.cpp` and `VirtualISO.cpp` also lack this specific channel bounds check. The newer-looking vendor release therefore **must not overwrite** the official r3 fix. The secure Android17 source direction here is the **official AOSP security revision** and a carefully controlled rebase, not importing archived 2023 or unguarded current vendor code.
+
+An **experimental, nondefault, source-only** manifest `aosp17_pe_p2_se_security_candidate.xml` pins only `hardware/nxp/secure_element` to exact official commit `8aec22fde8121bf3f74006730ce42e9ac0366b62` under `android-security-17.0.0_r3`, preserving the existing project owner, groups and all other checkouts. It is explicitly **not** part of the 25 reviewed active stages or the active `default.xml`. A strict validator checks its exact three-node manifest shape, immutable SHA, source ownership and no other project changes; three adversarial tests reject a tampered SHA, switching `default.xml`, or redirecting `system/secure_element`.
+
+**Before promotion:** compare the AIDL and HIDL fixes semantically against the actually selected build variant; validate NDK ABI/Soong, vendor NFC V1/V2 dependencies, OMAPI, VINTF, SELinux, response-length handling, CTS/VTS, signed firmware and physical mondrian. Coordinate security tags across the entire platform and NFC Mainline; **never set a newer SPL or claim full November patches merely because this isolated SE project was updated**.
+
 ## Nonnegotiable acceptance gates for mondrian
 
 1. Determine actual NFC NFCC and eSE/UICC presence for the user's exact mondrian SKU/firmware. Match Xiaomi stock vendor SE HAL, VINTF, kernel `/dev` node, ELF `DT_NEEDED`, hardware service instances and SE/OMAPI permissions **before** selecting `android.hardware.secure_element-service.nxp`. Never infer `/dev/p73`, P73 or `SIM1/SIM2` from an unrelated repository.
