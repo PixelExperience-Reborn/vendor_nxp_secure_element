@@ -1,0 +1,139 @@
+name: AOSP17 NXP Secure Element AIDL boundary and P73 HIDL safety
+
+on:
+  push:
+    branches:
+      - audit/a17-nxp-secure-element-aidl-20261107
+    paths:
+      - 'docs/ANDROID_17_NXP_SE_AIDL_BOUNDARY_AUDIT.md'
+      - 'audit/check_nxp_se_aidl_boundary.py'
+      - '.github/workflows/a17-nxp-se-aidl-boundary.yml'
+  pull_request:
+    paths:
+      - 'docs/ANDROID_17_NXP_SE_AIDL_BOUNDARY_AUDIT.md'
+      - 'audit/check_nxp_se_aidl_boundary.py'
+      - '.github/workflows/a17-nxp-se-aidl-boundary.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  pinned-se-interface-ownership:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout isolated SE audit without persisted GitHub token
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Fetch exact historical P73 SE HIDL 2023 commit
+        run: |
+          git fetch -q --no-tags --depth=1 origin \
+            +refs/heads/seventeen:refs/remotes/origin/seventeen
+      - name: Fetch official Android17 NXP SE r1 and security r3
+        run: |
+          git init -q "$RUNNER_TEMP/aosp17-se"
+          git -C "$RUNNER_TEMP/aosp17-se" remote add origin \
+            https://android.googlesource.com/platform/hardware/nxp/secure_element
+          git -C "$RUNNER_TEMP/aosp17-se" fetch -q --no-tags \
+            --filter=blob:none --depth=1 origin \
+            refs/tags/android-17.0.0_r1:refs/tags/android-17.0.0_r1 \
+            refs/tags/android-security-17.0.0_r3:refs/tags/android-security-17.0.0_r3
+      - name: Fetch NXP current Android17 17.07.00 SE AIDL sources
+        run: |
+          git init -q "$RUNNER_TEMP/nxp17-se"
+          git -C "$RUNNER_TEMP/nxp17-se" remote add origin \
+            https://github.com/NXPNFCProject/nfcandroid_se_hidlimpl.git
+          git -C "$RUNNER_TEMP/nxp17-se" fetch -q --no-tags \
+            --filter=blob:none --depth=1 origin \
+            +refs/heads/br_ar_17_aosp_mainline:refs/remotes/origin/br_ar_17_aosp_mainline
+      - name: Fetch reviewed independent PE-Reborn AOSP17 source graph
+        run: |
+          git clone -q --depth=1 \
+            --branch port/a17-aosp17-manifest-20261102 \
+            https://github.com/PixelExperience-Reborn/manifest.git \
+            "$RUNNER_TEMP/manifest"
+      - name: Verify pinned legacy, official SE AIDL and newer NXP revisions
+        run: |
+          python3 audit/check_nxp_se_aidl_boundary.py \
+            "$GITHUB_WORKSPACE" "$RUNNER_TEMP/aosp17-se" \
+            "$RUNNER_TEMP/nxp17-se" "$RUNNER_TEMP/manifest"
+      - name: Inspect AOSP17 SE security-r3 AIDL code changes (read-only)
+        run: |
+          echo "Security-r3 AIDL changes versus pinned AOSP17 r1:"
+          git -C "$RUNNER_TEMP/aosp17-se" diff --unified=3 \
+            ebc3542b480e505ed67ec52ea0c3135e5902ff5e \
+            8aec22fde8121bf3f74006730ce42e9ac0366b62 -- \
+            snxxx/aidl/SecureElement.cpp \
+            snxxx/aidl/VirtualISO.cpp | sed -n '1,300p'
+          echo "Diff is for audit; the active PE manifest remains AOSP17 r1."
+      - name: Run positive and adversarial manifest regression suite
+        run: |
+          cd "$RUNNER_TEMP/manifest"
+          python3 -m unittest discover -s tools \
+            -p test_aosp17_manifest_entrypoint.py -v
+      - name: Fetch official Android repo tool for isolated SE source candidate
+        run: |
+          set -euo pipefail
+          curl -fLsS --retry 4 https://storage.googleapis.com/git-repo-downloads/repo \
+            -o "$RUNNER_TEMP/repo"
+          chmod +x "$RUNNER_TEMP/repo"
+      - name: Resolve source-only SE security candidate with real repo manifest
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pe-se-candidate"
+          cd "$RUNNER_TEMP/pe-se-candidate"
+          "$RUNNER_TEMP/repo" init -q --no-clone-bundle \
+            --partial-clone --clone-filter=blob:none \
+            -u https://github.com/PixelExperience-Reborn/manifest.git \
+            -b port/a17-aosp17-manifest-20261102 \
+            -m aosp17_pe_p2_se_security_candidate.xml
+          "$RUNNER_TEMP/repo" manifest -o "$RUNNER_TEMP/se-candidate.xml"
+          python3 - <<'PY'
+          import os,xml.etree.ElementTree as ET
+          root=ET.parse(os.path.join(os.environ["RUNNER_TEMP"],"se-candidate.xml")).getroot()
+          all_projects=root.findall(".//project")
+          by_path={p.get("path") or p.get("name"):p for p in all_projects}
+          assert len(all_projects)==len(by_path)==1069
+          se=by_path["hardware/nxp/secure_element"]
+          print("SOURCE GRAPH DEBUG SE:", se.attrib, "total=", len(all_projects), flush=True)
+          assert se.get("name")=="platform/hardware/nxp/secure_element"
+          assert se.get("revision")=="8aec22fde8121bf3f74006730ce42e9ac0366b62"
+          # repo manifest normalizes an explicit default remote away.
+          # The source-only validator checks remote="aosp" in the input.
+          assert se.get("groups")=="pdk"
+          for path,owner in (
+              ("system/secure_element","platform/system/secure_element"),
+              ("hardware/nxp/nfc","platform/hardware/nxp/nfc"),
+              ("packages/modules/Nfc","platform/packages/modules/Nfc"),
+          ):
+              assert by_path[path].get("name")==owner
+          assert "vendor/nxp/secure_element" not in by_path
+          print("PASS: real repo manifest resolves 1069 unique selected projects")
+          print("PASS: only official NXP SE HAL source is pinned to security r3")
+          PY
+      - name: Sync and verify only the newer official SE HAL candidate
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/pe-se-candidate"
+          "$RUNNER_TEMP/repo" sync -c -j2 --no-tags --fail-fast hardware/nxp/secure_element
+          cd hardware/nxp/secure_element
+          test "$(git rev-parse HEAD)" = "8aec22fde8121bf3f74006730ce42e9ac0366b62"
+          test "$(git rev-parse 'HEAD^{tree}')" = "60db7cd2fb71673b3d8468162eaaed6649e3c42c"
+          python3 - <<'PY'
+          from pathlib import Path
+          for name in ("SecureElement.cpp","VirtualISO.cpp"):
+              src=Path("snxxx/aidl",name).read_text()
+              assert "rspApdu.p_data[0] < mMaxChannelCount && rspApdu.p_data[0] > 0" in src
+              assert "mOpenedChannels[resApduBuff.channelNumber] = true" in src
+          print("PASS: selected security-r3 SE Git tree and AIDL bounds fix")
+          print("NOT TESTED: functional eSE/OMAPI on mondrian, Soong or CTS/VTS")
+          PY
+      - name: State validation limitations
+        run: |
+          echo "SOURCE ONLY: archived HIDL and eSE updater evidence, official"
+          echo "Android17 SE AIDL and security-r3 source delta, NXP17 AIDL and"
+          echo "disabled updater, 25 manifest profiles and negative regressions."
+          echo "NOT TESTED: whole Soong/OMAPI build, VINTF, SELinux, NFC/eSE"
+          echo "physical hardware, APDU, payment, firmware, CTS/VTS, mondrian."
