@@ -1,0 +1,73 @@
+name: AOSP17 NXP Secure Element AIDL boundary and P73 HIDL safety
+
+on:
+  push:
+    branches:
+      - audit/a17-nxp-secure-element-aidl-20261107
+    paths:
+      - 'docs/ANDROID_17_NXP_SE_AIDL_BOUNDARY_AUDIT.md'
+      - 'audit/check_nxp_se_aidl_boundary.py'
+      - '.github/workflows/a17-nxp-se-aidl-boundary.yml'
+  pull_request:
+    paths:
+      - 'docs/ANDROID_17_NXP_SE_AIDL_BOUNDARY_AUDIT.md'
+      - 'audit/check_nxp_se_aidl_boundary.py'
+      - '.github/workflows/a17-nxp-se-aidl-boundary.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  pinned-se-interface-ownership:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout isolated SE audit without persisted GitHub token
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Fetch exact historical P73 SE HIDL 2023 commit
+        run: |
+          git fetch -q --no-tags --depth=1 origin \
+            +refs/heads/seventeen:refs/remotes/origin/seventeen
+      - name: Fetch official Android17 NXP SE r1 and security r3
+        run: |
+          git init -q "$RUNNER_TEMP/aosp17-se"
+          git -C "$RUNNER_TEMP/aosp17-se" remote add origin \
+            https://android.googlesource.com/platform/hardware/nxp/secure_element
+          git -C "$RUNNER_TEMP/aosp17-se" fetch -q --no-tags \
+            --filter=blob:none --depth=1 origin \
+            refs/tags/android-17.0.0_r1:refs/tags/android-17.0.0_r1 \
+            refs/tags/android-security-17.0.0_r3:refs/tags/android-security-17.0.0_r3
+      - name: Fetch NXP current Android17 17.07.00 SE AIDL sources
+        run: |
+          git init -q "$RUNNER_TEMP/nxp17-se"
+          git -C "$RUNNER_TEMP/nxp17-se" remote add origin \
+            https://github.com/NXPNFCProject/nfcandroid_se_hidlimpl.git
+          git -C "$RUNNER_TEMP/nxp17-se" fetch -q --no-tags \
+            --filter=blob:none --depth=1 origin \
+            +refs/heads/br_ar_17_aosp_mainline:refs/remotes/origin/br_ar_17_aosp_mainline
+      - name: Fetch reviewed independent PE-Reborn AOSP17 source graph
+        run: |
+          git clone -q --depth=1 \
+            --branch port/a17-aosp17-manifest-20261102 \
+            https://github.com/PixelExperience-Reborn/manifest.git \
+            "$RUNNER_TEMP/manifest"
+      - name: Verify pinned legacy, official SE AIDL and newer NXP revisions
+        run: |
+          python3 audit/check_nxp_se_aidl_boundary.py \
+            "$GITHUB_WORKSPACE" "$RUNNER_TEMP/aosp17-se" \
+            "$RUNNER_TEMP/nxp17-se" "$RUNNER_TEMP/manifest"
+      - name: Run positive and adversarial manifest regression suite
+        run: |
+          cd "$RUNNER_TEMP/manifest"
+          python3 -m unittest discover -s tools \
+            -p test_aosp17_manifest_entrypoint.py -v
+      - name: State validation limitations
+        run: |
+          echo "SOURCE ONLY: archived HIDL and eSE updater evidence, official"
+          echo "Android17 SE AIDL and security-r3 source delta, NXP17 AIDL and"
+          echo "disabled updater, 25 manifest profiles and negative regressions."
+          echo "NOT TESTED: whole Soong/OMAPI build, VINTF, SELinux, NFC/eSE"
+          echo "physical hardware, APDU, payment, firmware, CTS/VTS, mondrian."
