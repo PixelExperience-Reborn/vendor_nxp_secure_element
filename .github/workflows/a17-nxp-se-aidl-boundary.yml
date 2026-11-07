@@ -100,7 +100,9 @@ jobs:
           print("SOURCE GRAPH DEBUG SE:", se.attrib, "total=", len(all_projects), flush=True)
           assert se.get("name")=="platform/hardware/nxp/secure_element"
           assert se.get("revision")=="8aec22fde8121bf3f74006730ce42e9ac0366b62"
-          assert se.get("remote")=="aosp" and se.get("groups")=="pdk"
+          # repo manifest normalizes an explicit default remote away.
+          # The source-only validator checks remote="aosp" in the input.
+          assert se.get("groups")=="pdk"
           for path,owner in (
               ("system/secure_element","platform/system/secure_element"),
               ("hardware/nxp/nfc","platform/hardware/nxp/nfc"),
