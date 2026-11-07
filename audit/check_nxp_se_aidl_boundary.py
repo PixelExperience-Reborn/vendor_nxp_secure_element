@@ -47,7 +47,8 @@ def show(root, rev, path):
 
 def blob_paths(root, sha, prefix):
     result = {}
-    for line in git(root, "ls-tree", "-r", sha, prefix).splitlines():
+    tree_args = ["ls-tree", "-r", sha] + ([prefix] if prefix else [])
+    for line in git(root, *tree_args).splitlines():
         header, path = line.split("\t", 1)
         _mode, kind, blob = header.split()
         if kind == "blob":
