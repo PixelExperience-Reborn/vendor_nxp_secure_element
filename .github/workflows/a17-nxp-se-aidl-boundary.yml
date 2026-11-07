@@ -97,6 +97,7 @@ jobs:
           by_path={p.get("path") or p.get("name"):p for p in all_projects}
           assert len(all_projects)==len(by_path)==1069
           se=by_path["hardware/nxp/secure_element"]
+          print("SOURCE GRAPH DEBUG SE:", se.attrib, "total=", len(all_projects), flush=True)
           assert se.get("name")=="platform/hardware/nxp/secure_element"
           assert se.get("revision")=="8aec22fde8121bf3f74006730ce42e9ac0366b62"
           assert se.get("remote")=="aosp" and se.get("groups")=="pdk"
