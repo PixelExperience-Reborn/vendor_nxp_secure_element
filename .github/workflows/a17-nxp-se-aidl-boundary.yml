@@ -59,6 +59,15 @@ jobs:
           python3 audit/check_nxp_se_aidl_boundary.py \
             "$GITHUB_WORKSPACE" "$RUNNER_TEMP/aosp17-se" \
             "$RUNNER_TEMP/nxp17-se" "$RUNNER_TEMP/manifest"
+      - name: Inspect AOSP17 SE security-r3 AIDL code changes (read-only)
+        run: |
+          echo "Security-r3 AIDL changes versus pinned AOSP17 r1:"
+          git -C "$RUNNER_TEMP/aosp17-se" diff --unified=3 \
+            ebc3542b480e505ed67ec52ea0c3135e5902ff5e \
+            8aec22fde8121bf3f74006730ce42e9ac0366b62 -- \
+            snxxx/aidl/SecureElement.cpp \
+            snxxx/aidl/VirtualISO.cpp | sed -n '1,300p'
+          echo "Diff is for audit; the active PE manifest remains AOSP17 r1."
       - name: Run positive and adversarial manifest regression suite
         run: |
           cd "$RUNNER_TEMP/manifest"
