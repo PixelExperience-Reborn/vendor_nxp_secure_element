@@ -56,6 +56,16 @@ An **experimental, nondefault, source-only** manifest `aosp17_pe_p2_se_security_
 
 **Before promotion:** compare the AIDL and HIDL fixes semantically against the actually selected build variant; validate NDK ABI/Soong, vendor NFC V1/V2 dependencies, OMAPI, VINTF, SELinux, response-length handling, CTS/VTS, signed firmware and physical mondrian. Coordinate security tags across the entire platform and NFC Mainline; **never set a newer SPL or claim full November patches merely because this isolated SE project was updated**.
 
+## Confirmed official `repo` candidate resolution and targeted source sync
+
+[GitHub Actions #42322975040](https://github.com/PixelExperience-Reborn/vendor_nxp_secure_element/actions/runs/42322975040) completed **SUCCESS** (not just a local XML check): fetched the official `repo` launcher, evaluated `aosp17_pe_p2_se_security_candidate.xml` from the PE manifest working branch and resolved **1069 unique selected checkout paths**. The source graph retained official `hardware/nxp/nfc`, `packages/modules/Nfc`, and `system/secure_element` ownership; the only replaced checkout is the official NXP SE HAL with security-r3 commit `8aec22fde8121bf3f74006730ce42e9ac0366b62`.
+
+The workflow then performed **real `repo sync` of `hardware/nxp/secure_element` only**; verified its exact Git commit and tree `60db7cd2fb71673b3d8468162eaaed6649e3c42c`, plus both AIDL channel-range checks. Source-contract gate verified legacy/official/NXP source pins, old P73/HIDL/eSE updater risks, current AIDL V1, and the precise baseline-to-r3 ten-file patch list. **All 25 approved stages passed; 41/41 manifest positive and adversarial tests passed.**
+
+The canonical flattened `repo manifest` omits `remote="aosp"` when inherited from the default remote, despite that attribute being explicit in the new candidate XML. The validator tests the raw manifest's exact remote and SHA; the actual `repo sync` proves the checkout resolves to the pinned official Git commit. This is expected canonical normalization, not a source-owner substitution.
+
+**No whole-ROM AOSP17 build, device vendor image, VINTF/SELinux runtime, physical SE, payment or eSE/APDU test has been performed.** No change to selected `default.xml` or the historic `seventeen` branch.
+
 ## Nonnegotiable acceptance gates for mondrian
 
 1. Determine actual NFC NFCC and eSE/UICC presence for the user's exact mondrian SKU/firmware. Match Xiaomi stock vendor SE HAL, VINTF, kernel `/dev` node, ELF `DT_NEEDED`, hardware service instances and SE/OMAPI permissions **before** selecting `android.hardware.secure_element-service.nxp`. Never infer `/dev/p73`, P73 or `SIM1/SIM2` from an unrelated repository.
